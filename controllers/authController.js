@@ -1,0 +1,219 @@
+const jwt = require("jsonwebtoken");
+const { supabase } = require("../config/db");
+const FarmerModel = require("../models/Farmer");
+const { sendOTP, verifyOTP } = require("../services/smsService");
+
+/**
+ * POST /api/auth/register
+ * Register a new farmer with phone + OTP
+ */
+const register = async (req, res, next) => {
+  try {
+    const { phone, name, email, address, state, district, pincode } = req.body;
+
+    // Validate
+    const validation = FarmerModel.validate({ phone, name });
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: validation.errors,
+      });
+    }
+
+    // Check if farmer already exists
+    const { data: existing } = await supabase
+      .from(FarmerModel.tableName)
+      .select("id")
+      .eq("phone", phone)
+      .single();
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "Phone number already registered. Please login.",
+      });
+    }
+
+    // Create farmer record
+    const { data: farmer, error } = await supabase
+      .from(FarmerModel.tableName)
+      .insert({
+        phone,
+        name,
+        email: email || null,
+        address: address || null,
+        state: state || null,
+        district: district || null,
+        pincode: pincode || null,
+        is_verified: false,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    // Send OTP
+    const otpResult = await sendOTP(phone);
+
+    res.status(201).json({
+      success: true,
+      message: "Registration successful. OTP sent to your phone.",
+      data: {
+        farmerId: farmer.id,
+        phone: farmer.phone,
+        otpSent: otpResult.success,
+        // Include OTP in dev mode for testing
+        ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/verify-otp
+ * Verify OTP and return JWT token
+ */
+const verifyOtp = async (req, res, next) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone and OTP are required.",
+      });
+    }
+
+    // Verify OTP
+    const result = verifyOTP(phone, otp);
+
+    if (!result.valid) {
+      return res.status(401).json({
+        success: false,
+        message: result.message,
+      });
+    }
+
+    // Get farmer
+    const { data: farmer, error } = await supabase
+      .from(FarmerModel.tableName)
+      .select("*")
+      .eq("phone", phone)
+      .single();
+
+    if (error || !farmer) {
+      return res.status(404).json({
+        success: false,
+        message: "Farmer not found. Please register first.",
+      });
+    }
+
+    // Mark as verified
+    await supabase
+      .from(FarmerModel.tableName)
+      .update({ is_verified: true })
+      .eq("id", farmer.id);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { farmerId: farmer.id, phone: farmer.phone },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" },
+    );
+
+    res.json({
+      success: true,
+      message: "OTP verified successfully.",
+      data: {
+        token,
+        farmer: FarmerModel.format(farmer),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/login
+ * Login with phone - sends OTP
+ */
+const login = async (req, res, next) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required.",
+      });
+    }
+
+    // Check if farmer exists
+    const { data: farmer } = await supabase
+      .from(FarmerModel.tableName)
+      .select("id, phone, name")
+      .eq("phone", phone)
+      .single();
+
+    if (!farmer) {
+      return res.status(404).json({
+        success: false,
+        message: "Phone number not registered. Please register first.",
+      });
+    }
+
+    // Send OTP
+    const otpResult = await sendOTP(phone);
+
+    res.json({
+      success: true,
+      message: "OTP sent to your phone.",
+      data: {
+        farmerId: farmer.id,
+        phone: farmer.phone,
+        otpSent: otpResult.success,
+        ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/logout
+ * Logout - client-side token deletion
+ */
+const logout = async (req, res) => {
+  res.json({
+    success: true,
+    message: "Logged out successfully. Please delete the token on client.",
+  });
+};
+
+/**
+ * GET /api/auth/verify
+ * Verify current JWT token and return farmer data
+ */
+const verify = async (req, res, next) => {
+  try {
+    // req.farmer is set by authMiddleware
+    res.json({
+      success: true,
+      message: "Token is valid.",
+      data: {
+        farmer: FarmerModel.format(req.farmer),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { register, verifyOtp, login, logout, verify };
