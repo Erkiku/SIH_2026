@@ -220,4 +220,50 @@ const verify = async (req, res, next) => {
   }
 };
 
-module.exports = { register, verifyOtp, login, logout, verify };
+/**
+ * PUT /api/auth/profile
+ * Update farmer profile details including base64 documents
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const farmerId = req.farmer.id;
+    const { name, email, address, state, district, pincode, bankAccount, bankIfsc, aadhaarUrl, bankProofUrl } = req.body;
+
+    const updates = {};
+    if (name) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (address) updates.address = address;
+    if (state) updates.state = state;
+    if (district) updates.district = district;
+    if (pincode) updates.pincode = pincode;
+    if (bankAccount !== undefined) updates.bank_account = bankAccount;
+    if (bankIfsc !== undefined) updates.bank_ifsc = bankIfsc;
+    if (aadhaarUrl !== undefined) updates.aadhaar_url = aadhaarUrl;
+    if (bankProofUrl !== undefined) updates.bank_proof_url = bankProofUrl;
+
+    updates.updated_at = new Date();
+
+    const { data: updatedFarmer, error } = await supabase
+      .from(FarmerModel.tableName)
+      .update(updates)
+      .eq("id", farmerId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully.",
+      data: {
+        farmer: FarmerModel.format(updatedFarmer),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { register, verifyOtp, login, logout, verify, updateProfile };

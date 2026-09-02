@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS farmers (
   pincode TEXT,
   bank_account TEXT,
   bank_ifsc TEXT,
+  aadhaar_url TEXT,
+  bank_proof_url TEXT,
   profile_photo TEXT,
   is_verified BOOLEAN DEFAULT false,
   device_id TEXT,

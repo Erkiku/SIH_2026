@@ -24,4 +24,8 @@ router.post("/logout", logout);
 // GET /api/auth/verify - Verify current token
 router.get("/verify", authMiddleware, verify);
 
+// PUT /api/auth/profile - Update farmer profile
+const { updateProfile } = require("../controllers/authController");
+router.put("/profile", authMiddleware, updateProfile);
+
 module.exports = router;

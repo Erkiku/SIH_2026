@@ -77,6 +77,8 @@ function format(row) {
     pincode: row.pincode,
     bankAccount: row.bank_account,
     bankIFSC: row.bank_ifsc,
+    aadhaarUrl: row.aadhaar_url,
+    bankProofUrl: row.bank_proof_url,
     profilePhoto: row.profile_photo,
     profileImageUrl: row.profile_photo, // Frontend alias
     isVerified: row.is_verified,
