@@ -16,10 +16,7 @@ const OTP_EXPIRY = 5 * 60 * 1000;
  * In production: generates random 6-digit OTP
  */
 const generateOTP = () => {
-  if (
-    process.env.NODE_ENV === "development" ||
-    process.env.SMS_PROVIDER === "mock"
-  ) {
+  if (process.env.SMS_PROVIDER === "mock") {
     return "123456";
   }
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -39,26 +36,49 @@ const sendOTP = async (phone) => {
       attempts: 0,
     });
 
-    if (
-      process.env.NODE_ENV === "development" ||
-      process.env.SMS_PROVIDER === "mock"
-    ) {
-      console.log("========== SMS SERVICE (DEV MODE) ==========");
-      console.log(`Phone: ${phone}`);
-      console.log(`OTP: ${otp}`);
-      console.log("=============================================");
-      return { success: true, message: "OTP sent (dev mode)", otp }; // Return OTP in dev
+    if (process.env.SMS_PROVIDER === "twilio") {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+      const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+      
+      // Ensure phone has country code, default to +91 (India) if 10 digits
+      const formattedPhone = phone.startsWith("+") ? phone : `+91${phone}`;
+
+      const params = new URLSearchParams();
+      params.append("To", formattedPhone);
+      params.append("From", fromNumber);
+      params.append("Body", `Namaste! Your OTP for Farmer Procurement App is ${otp}. Valid for 5 minutes.`);
+
+      const response = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${basicAuth}`,
+          },
+          body: params.toString(),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Twilio SMS Error:", errorData);
+        throw new Error(errorData.message || "Failed to send SMS via Twilio");
+      }
+
+      console.log(`Real SMS sent to ${formattedPhone} via Twilio.`);
+      return { success: true, message: "OTP sent via SMS" };
     }
 
-    // Production: Replace with actual SMS provider
-    // Example with Twilio:
-    // await twilioClient.messages.create({
-    //   body: `Your OTP is: ${otp}`,
-    //   to: phone,
-    //   from: process.env.TWILIO_PHONE,
-    // });
-
-    return { success: true, message: "OTP sent" };
+    // Fallback to mock mode
+    console.log("========== SMS SERVICE (MOCK MODE) ==========");
+    console.log(`Phone: ${phone}`);
+    console.log(`OTP: ${otp}`);
+    console.log("=============================================");
+    return { success: true, message: "OTP sent (mock mode)", otp }; // Return OTP
   } catch (error) {
     console.error("SMS service error:", error.message);
     return { success: false, message: error.message };
