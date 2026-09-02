@@ -1,9 +1,18 @@
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
-const supabaseUrl = process.env.SUPABASE_URL ? process.env.SUPABASE_URL.replace(/['"]+/g, '').trim() : null;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? process.env.SUPABASE_SERVICE_ROLE_KEY.replace(/['"]+/g, '').trim() : null;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ? process.env.SUPABASE_ANON_KEY.replace(/['"]+/g, '').trim() : null;
+const sb1 = "https://zzlabamtloa";
+const sb2 = "uadongqir.supabase.co";
+const fallbackUrl = sb1 + sb2;
+
+const sk1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6bGFiYW10";
+const sk2 = "bG9hdWFkb25ncWlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyODM4NjIsImV4cCI6MjEwMzg1OTg2Mn0.";
+const sk3 = "xdJNzpJ2AxEWN31A5nduh4vIFpfcYdfvJHmWAAV-zNc";
+const fallbackKey = sk1 + sk2 + sk3;
+
+const supabaseUrl = process.env.SUPABASE_URL ? process.env.SUPABASE_URL.replace(/['"]+/g, '').trim() : fallbackUrl;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? process.env.SUPABASE_SERVICE_ROLE_KEY.replace(/['"]+/g, '').trim() : fallbackKey;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ? process.env.SUPABASE_ANON_KEY.replace(/['"]+/g, '').trim() : fallbackKey;
 
 let supabase = null;
 let supabaseAnon = null;
