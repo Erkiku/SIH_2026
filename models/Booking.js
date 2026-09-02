@@ -15,16 +15,8 @@ const VALID_PAYMENT_STATUSES = ["pending", "processing", "completed", "failed"];
 function validate(data) {
   const errors = [];
 
-  if (!data.cropId) {
-    errors.push("Crop ID is required");
-  }
-
   if (!data.centerId) {
     errors.push("Center ID is required");
-  }
-
-  if (!data.slotId) {
-    errors.push("Slot ID is required");
   }
 
   if (!data.appointmentDate) {

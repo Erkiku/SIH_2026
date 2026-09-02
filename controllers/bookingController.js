@@ -21,28 +21,30 @@ const createBooking = async (req, res, next) => {
       });
     }
 
-    // Check slot availability
-    const { data: slot, error: slotError } = await supabase
-      .from("slots")
-      .select("*")
-      .eq("id", data.slotId)
-      .single();
+    // Check slot availability if slotId is provided
+    if (data.slotId) {
+      const { data: slot, error: slotError } = await supabase
+        .from("slots")
+        .select("*")
+        .eq("id", data.slotId)
+        .single();
 
-    if (slotError || !slot) {
-      return res.status(404).json({
-        success: false,
-        message: "Slot not found.",
-      });
-    }
+      if (slotError || !slot) {
+        return res.status(404).json({
+          success: false,
+          message: "Slot not found.",
+        });
+      }
 
-    if (
-      slot.status !== "available" ||
-      slot.booked_spots >= slot.available_spots
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Slot is full. Please choose another slot.",
-      });
+      if (
+        slot.status !== "available" ||
+        slot.booked_spots >= slot.available_spots
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Slot is full. Please choose another slot.",
+        });
+      }
     }
 
     // Get current queue position
