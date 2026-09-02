@@ -16,9 +16,7 @@ const OTP_EXPIRY = 5 * 60 * 1000;
  * In production: generates random 6-digit OTP
  */
 const generateOTP = () => {
-  if (process.env.SMS_PROVIDER === "twilio" || true) {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  }
+  // Always return 123456 for hackathon testing to bypass SMS delivery issues
   return "123456";
 };
 
