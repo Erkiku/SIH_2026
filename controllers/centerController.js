@@ -12,10 +12,14 @@ const {
  */
 const getAllCenters = async (req, res, next) => {
   try {
-    const { data: centers, error } = await supabase
+    const { state, district } = req.query;
+    let query = supabase
       .from(CenterModel.tableName)
-      .select("*")
-      .order("center_name", { ascending: true });
+      .select("*");
+      
+    if (district) query = query.ilike('district', `%${district}%`);
+
+    const { data: centers, error } = await query.order("center_name", { ascending: true });
 
     if (error) throw error;
 
