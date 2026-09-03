@@ -21,29 +21,23 @@ const createBooking = async (req, res, next) => {
       });
     }
 
-    // Check slot availability if slotId is provided
+    // Check slot availability if slotId is provided and exists
+    let slot = null;
     if (data.slotId) {
-      const { data: slot, error: slotError } = await supabase
+      const { data: slotData } = await supabase
         .from("slots")
         .select("*")
         .eq("id", data.slotId)
         .single();
-
-      if (slotError || !slot) {
-        return res.status(404).json({
-          success: false,
-          message: "Slot not found.",
-        });
-      }
-
-      if (
-        slot.status !== "available" ||
-        slot.booked_spots >= slot.available_spots
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Slot is full. Please choose another slot.",
-        });
+      
+      if (slotData) {
+        slot = slotData;
+        if (slot.status === "full" || slot.booked_spots >= slot.available_spots) {
+          return res.status(400).json({
+            success: false,
+            message: "Slot is full. Please choose another slot.",
+          });
+        }
       }
     }
 
@@ -52,7 +46,7 @@ const createBooking = async (req, res, next) => {
       .from("bookings")
       .select("id", { count: "exact", head: true })
       .eq("center_id", data.centerId)
-      .eq("appointment_date", data.appointmentDate)
+      .eq("appointment_date", data.appointmentDate || new Date().toISOString().split("T")[0])
       .in("status", ["confirmed", "in_progress"]);
 
     // Create booking with position
@@ -68,21 +62,23 @@ const createBooking = async (req, res, next) => {
 
     if (error) throw error;
 
-    // Update slot booked_spots
-    await supabase
-      .from("slots")
-      .update({
-        booked_spots: slot.booked_spots + 1,
-        status:
-          slot.booked_spots + 1 >= slot.available_spots ? "full" : "available",
-      })
-      .eq("id", data.slotId);
+    // Update slot booked_spots if slot exists
+    if (slot && slot.id) {
+      await supabase
+        .from("slots")
+        .update({
+          booked_spots: (slot.booked_spots || 0) + 1,
+          status: (slot.booked_spots || 0) + 1 >= (slot.available_spots || 10) ? "full" : "available",
+        })
+        .eq("id", slot.id);
+    }
 
     // Update center current_queue
     await supabase
       .from("procurement_centers")
       .update({ current_queue: (queueCount || 0) + 1 })
       .eq("id", data.centerId);
+
 
     // Create notification
     await supabase.from("notifications").insert(

@@ -30,13 +30,16 @@ function validate(data) {
 }
 
 /**
- * Generate a unique token number
+ * Generate a unique token number (2 Uppercase Letters + 4 Digits e.g. HR4892)
  */
-function generateTokenNumber() {
-  const prefix = "TKN";
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${timestamp}-${random}`;
+function generateTokenNumber(stateOrRegion) {
+  const rawPrefix = (stateOrRegion || "HR")
+    .replace(/[^A-Za-z]/g, "")
+    .substring(0, 2)
+    .toUpperCase();
+  const prefix = rawPrefix.length === 2 ? rawPrefix : "HR";
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}${num}`;
 }
 
 /**
@@ -54,7 +57,7 @@ function format(row) {
     centerId: row.center_id,
     centerName: row.center_name || "Procurement Center",
     slotId: row.slot_id,
-    tokenNumber: row.token_number || generateTokenNumber(),
+    tokenNumber: row.token_number || generateTokenNumber("HR"),
     bookingDate: row.booking_date,
     appointmentDate: row.appointment_date,
     appointmentTime: row.appointment_time,
@@ -96,7 +99,7 @@ function format(row) {
  */
 function toDbRow(data, farmerId) {
   const generatedId = Date.now().toString(36);
-  const token = generateTokenNumber();
+  const token = generateTokenNumber(data.state || data.centerName || "HR");
   const quantity = parseFloat(data.quantity || 50);
   const rate = parseFloat(data.procurementRate || 2275);
   const totalPayout = quantity * rate;
@@ -113,6 +116,7 @@ function toDbRow(data, farmerId) {
     token_number: token,
     booking_date: new Date().toISOString(),
     appointment_date: data.appointmentDate || new Date().toISOString().split("T")[0],
+
     appointment_time: data.appointmentTime || data.slot || "09:30 AM",
     status: data.status || "confirmed",
     estimated_wait_time: data.estimatedWaitTime || 15,
