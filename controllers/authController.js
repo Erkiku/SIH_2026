@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const { supabase } = require("../config/db");
 const FarmerModel = require("../models/Farmer");
-const { sendOTP, verifyOTP } = require("../services/smsService");
+const { sendOTP, verifyOTP, getOTPStatus } = require("../services/smsService");
+
 
 /**
  * POST /api/auth/register
@@ -144,51 +145,106 @@ const verifyOtp = async (req, res, next) => {
 };
 
 /**
- * POST /api/auth/login
- * Login with phone - sends OTP
+ * POST /api/auth/send-otp
+ * Standalone Send OTP endpoint according to PRD spec
  */
-const login = async (req, res, next) => {
+const sendOtp = async (req, res, next) => {
   try {
     const { phone } = req.body;
 
     if (!phone) {
       return res.status(400).json({
         success: false,
+        error: "invalid_phone_format",
         message: "Phone number is required.",
       });
     }
 
-    // Check if farmer exists
-    const { data: farmer } = await supabase
-      .from(FarmerModel.tableName)
-      .select("id, phone, name")
-      .eq("phone", phone)
-      .single();
+    const otpResult = await sendOTP(phone);
 
-    if (!farmer) {
-      return res.status(404).json({
+    if (!otpResult.success) {
+      return res.status(otpResult.status || 400).json({
         success: false,
-        message: "Phone number not registered. Please register first.",
+        error: otpResult.error || "send_failed",
+        message: otpResult.message,
+        retry_after: otpResult.retry_after,
       });
     }
 
-    // Send OTP
-    const otpResult = await sendOTP(phone);
-
-    res.json({
+    res.status(200).json({
       success: true,
-      message: "OTP sent to your phone.",
-      data: {
-        farmerId: farmer.id,
-        phone: farmer.phone,
-        otpSent: otpResult.success,
-        ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
-      },
+      message: `OTP sent to ${phone}`,
+      request_id: `req-${Date.now()}`,
+      resend_after: otpResult.resend_after || 30,
+      expires_in: otpResult.expires_in || 300,
+      ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
     });
   } catch (error) {
     next(error);
   }
 };
+
+/**
+ * POST /api/auth/resend-otp
+ * Resend OTP with 30s cooldown check
+ */
+const resendOtp = async (req, res, next) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        error: "invalid_phone_format",
+        message: "Phone number is required.",
+      });
+    }
+
+    const otpResult = await sendOTP(phone);
+
+    if (!otpResult.success) {
+      return res.status(otpResult.status || 400).json({
+        success: false,
+        error: otpResult.error || "resend_failed",
+        message: otpResult.message,
+        retry_after: otpResult.retry_after,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `New OTP sent to ${phone}`,
+      resend_after: otpResult.resend_after || 30,
+      expires_in: otpResult.expires_in || 300,
+      ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/auth/otp-status/:phone
+ * Retrieve active OTP status
+ */
+const otpStatus = async (req, res) => {
+  const { phone } = req.params;
+  const status = getOTPStatus(phone);
+
+  if (!status) {
+    return res.status(404).json({
+      success: false,
+      error: "no_active_otp",
+      message: "No active OTP found for this phone number.",
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    status,
+  });
+};
+
 
 /**
  * POST /api/auth/logout
@@ -266,4 +322,5 @@ const updateProfile = async (req, res, next) => {
   }
 };
 
-module.exports = { register, verifyOtp, login, logout, verify, updateProfile };
+module.exports = { register, verifyOtp, sendOtp, resendOtp, otpStatus, logout, verify, updateProfile };
+
