@@ -79,6 +79,10 @@ const register = async (req, res, next) => {
  * POST /api/auth/verify-otp
  * Verify OTP and return JWT token
  */
+/**
+ * POST /api/auth/verify-otp
+ * Verify OTP and return JWT token + Firebase Custom Token
+ */
 const verifyOtp = async (req, res, next) => {
   try {
     const { phone, otp } = req.body;
@@ -86,58 +90,121 @@ const verifyOtp = async (req, res, next) => {
     if (!phone || !otp) {
       return res.status(400).json({
         success: false,
-        message: "Phone and OTP are required.",
+        error: "missing_fields",
+        message: "Phone and OTP required",
       });
     }
 
-    // Verify OTP
-    const result = verifyOTP(phone, otp);
+    const formattedPhone = phone.startsWith("+") ? phone : `+91${phone}`;
+
+    // Verify OTP (checks Firebase Firestore & in-memory store)
+    const result = await verifyOTP(phone, otp);
 
     if (!result.valid) {
       return res.status(401).json({
         success: false,
+        error: result.error || "invalid_otp",
         message: result.message,
+        attemptsRemaining: result.attemptsRemaining,
       });
     }
 
-    // Get farmer
-    const { data: farmer, error } = await supabase
-      .from(FarmerModel.tableName)
-      .select("*")
-      .eq("phone", phone)
-      .single();
+    // 1. Firebase Auth & Firestore user sync if configured
+    let firebaseUserId = null;
+    let customToken = null;
+    const { db, auth, admin, isFirebaseConfigured } = require("../config/firebase");
 
-    if (error || !farmer) {
-      return res.status(404).json({
-        success: false,
-        message: "Farmer not found. Please register first.",
-      });
+    if (isFirebaseConfigured) {
+      try {
+        if (auth) {
+          let userRecord;
+          try {
+            userRecord = await auth.getUserByPhoneNumber(formattedPhone);
+          } catch (fbErr) {
+            if (fbErr.code === "auth/user-not-found") {
+              userRecord = await auth.createUser({
+                phoneNumber: formattedPhone,
+                disabled: false,
+              });
+            } else {
+              console.warn("Firebase getUserByPhoneNumber warning:", fbErr.message);
+            }
+          }
+          if (userRecord) {
+            firebaseUserId = userRecord.uid;
+            customToken = await auth.createCustomToken(firebaseUserId);
+          }
+        }
+
+        if (db && (firebaseUserId || formattedPhone)) {
+          const docId = firebaseUserId || formattedPhone;
+          await db.collection("users").doc(docId).set(
+            {
+              phone: formattedPhone,
+              last_login: admin.firestore.FieldValue.serverTimestamp(),
+              verified: true,
+              ...(firebaseUserId ? {} : { created_at: admin.firestore.FieldValue.serverTimestamp() }),
+            },
+            { merge: true }
+          );
+        }
+      } catch (fbSyncErr) {
+        console.warn("⚠️ Firebase user sync warning:", fbSyncErr.message);
+      }
     }
 
-    // Mark as verified
-    await supabase
-      .from(FarmerModel.tableName)
-      .update({ is_verified: true })
-      .eq("id", farmer.id);
+    // 2. Fetch/upsert farmer in Supabase database
+    let farmer = null;
+    try {
+      const { data: existingFarmer } = await supabase
+        .from(FarmerModel.tableName)
+        .select("*")
+        .eq("phone", phone)
+        .single();
 
-    // Generate JWT token
-    const j1 = "farmer_procurement_";
-    const j2 = "jwt_secret_2026_sih";
-    const fallbackJwt = j1 + j2;
+      if (existingFarmer) {
+        farmer = existingFarmer;
+        await supabase
+          .from(FarmerModel.tableName)
+          .update({ is_verified: true })
+          .eq("id", existingFarmer.id);
+      } else {
+        // Auto-register farmer record
+        const { data: newFarmer } = await supabase
+          .from(FarmerModel.tableName)
+          .insert({
+            phone: phone,
+            name: `Farmer ${phone.slice(-4)}`,
+            is_verified: true,
+          })
+          .select()
+          .single();
+        farmer = newFarmer;
+      }
+    } catch (sbErr) {
+      console.warn("Supabase farmer lookup warning:", sbErr.message);
+    }
 
+    const userId = farmer ? farmer.id : firebaseUserId || `user-${Date.now()}`;
+
+    // 3. Generate JWT Token
+    const fallbackJwt = "farmer_procurement_jwt_secret_2026_sih";
     const token = jwt.sign(
-      { farmerId: farmer.id, phone: farmer.phone },
+      { farmerId: userId, phone: formattedPhone },
       process.env.JWT_SECRET || fallbackJwt,
-      { expiresIn: "30d" },
+      { expiresIn: "30d" }
     );
 
-    res.json({
+    console.log(`✅ OTP verified for ${formattedPhone}`);
+
+    res.status(200).json({
       success: true,
-      message: "OTP verified successfully.",
-      data: {
-        token,
-        farmer: FarmerModel.format(farmer),
-      },
+      message: "OTP verified successfully",
+      userId: userId,
+      token: token,
+      customToken: customToken || token,
+      expiresIn: 3600,
+      ...(farmer && { farmer: FarmerModel.format(farmer) }),
     });
   } catch (error) {
     next(error);
@@ -146,7 +213,7 @@ const verifyOtp = async (req, res, next) => {
 
 /**
  * POST /api/auth/send-otp
- * Standalone Send OTP endpoint according to PRD spec
+ * Standalone Send OTP endpoint
  */
 const sendOtp = async (req, res, next) => {
   try {
@@ -155,12 +222,17 @@ const sendOtp = async (req, res, next) => {
     if (!phone) {
       return res.status(400).json({
         success: false,
-        error: "invalid_phone_format",
+        error: "invalid_phone",
         message: "Phone number is required.",
       });
     }
 
-    const otpResult = await sendOTP(phone);
+    const metadata = {
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    };
+
+    const otpResult = await sendOTP(phone, metadata);
 
     if (!otpResult.success) {
       return res.status(otpResult.status || 400).json({
@@ -173,11 +245,11 @@ const sendOtp = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: `OTP sent to ${phone}`,
+      message: "OTP sent successfully",
+      expiresIn: 300,
+      resendAfter: 30,
       request_id: `req-${Date.now()}`,
-      resend_after: otpResult.resend_after || 30,
-      expires_in: otpResult.expires_in || 300,
-      ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
+      ...(process.env.NODE_ENV === "development" && { testOTP: otpResult.otp, otp: otpResult.otp }),
     });
   } catch (error) {
     next(error);
@@ -195,12 +267,17 @@ const resendOtp = async (req, res, next) => {
     if (!phone) {
       return res.status(400).json({
         success: false,
-        error: "invalid_phone_format",
+        error: "invalid_phone",
         message: "Phone number is required.",
       });
     }
 
-    const otpResult = await sendOTP(phone);
+    const metadata = {
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    };
+
+    const otpResult = await sendOTP(phone, metadata);
 
     if (!otpResult.success) {
       return res.status(otpResult.status || 400).json({
@@ -214,9 +291,9 @@ const resendOtp = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: `New OTP sent to ${phone}`,
-      resend_after: otpResult.resend_after || 30,
-      expires_in: otpResult.expires_in || 300,
-      ...(process.env.NODE_ENV === "development" && { otp: otpResult.otp }),
+      resendAfter: 30,
+      expiresIn: 300,
+      ...(process.env.NODE_ENV === "development" && { testOTP: otpResult.otp, otp: otpResult.otp }),
     });
   } catch (error) {
     next(error);
@@ -224,103 +301,108 @@ const resendOtp = async (req, res, next) => {
 };
 
 /**
- * GET /api/auth/otp-status/:phone
- * Retrieve active OTP status
+ * GET /api/users/:userId
+ * Get user details by ID from Firestore or Supabase
  */
-const otpStatus = async (req, res) => {
-  const { phone } = req.params;
-  const status = getOTPStatus(phone);
-
-  if (!status) {
-    return res.status(404).json({
-      success: false,
-      error: "no_active_otp",
-      message: "No active OTP found for this phone number.",
-    });
-  }
-
-  res.status(200).json({
-    success: true,
-    status,
-  });
-};
-
-
-/**
- * POST /api/auth/logout
- * Logout - client-side token deletion
- */
-const logout = async (req, res) => {
-  res.json({
-    success: true,
-    message: "Logged out successfully. Please delete the token on client.",
-  });
-};
-
-/**
- * GET /api/auth/verify
- * Verify current JWT token and return farmer data
- */
-const verify = async (req, res, next) => {
+const getUserById = async (req, res, next) => {
   try {
-    // req.farmer is set by authMiddleware
-    res.json({
-      success: true,
-      message: "Token is valid.",
-      data: {
-        farmer: FarmerModel.format(req.farmer),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+    const { userId } = req.params;
+    const { db } = require("../config/firebase");
 
-/**
- * PUT /api/auth/profile
- * Update farmer profile details including base64 documents
- */
-const updateProfile = async (req, res, next) => {
-  try {
-    const farmerId = req.farmer.id;
-    const { name, email, address, state, district, pincode, bankAccount, bankIfsc, aadhaarUrl, bankProofUrl } = req.body;
-
-    const updates = {};
-    if (name) updates.name = name;
-    if (email !== undefined) updates.email = email;
-    if (address) updates.address = address;
-    if (state) updates.state = state;
-    if (district) updates.district = district;
-    if (pincode) updates.pincode = pincode;
-    if (bankAccount !== undefined) updates.bank_account = bankAccount;
-    if (bankIfsc !== undefined) updates.bank_ifsc = bankIfsc;
-    if (aadhaarUrl !== undefined) updates.aadhaar_url = aadhaarUrl;
-    if (bankProofUrl !== undefined) updates.bank_proof_url = bankProofUrl;
-
-    updates.updated_at = new Date();
-
-    const { data: updatedFarmer, error } = await supabase
-      .from(FarmerModel.tableName)
-      .update(updates)
-      .eq("id", farmerId)
-      .select("*")
-      .single();
-
-    if (error) {
-      throw error;
+    if (db) {
+      const userDoc = await db.collection("users").doc(userId).get();
+      if (userDoc.exists) {
+        return res.status(200).json({
+          success: true,
+          user: {
+            userId: userDoc.id,
+            ...userDoc.data(),
+          },
+        });
+      }
     }
 
-    res.json({
+    const { data: farmer } = await supabase
+      .from(FarmerModel.tableName)
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (!farmer) {
+      return res.status(404).json({
+        success: false,
+        error: "not_found",
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
       success: true,
-      message: "Profile updated successfully.",
-      data: {
-        farmer: FarmerModel.format(updatedFarmer),
-      },
+      user: FarmerModel.format(farmer),
     });
   } catch (error) {
     next(error);
   }
 };
 
-module.exports = { register, verifyOtp, sendOtp, resendOtp, otpStatus, logout, verify, updateProfile };
+/**
+ * GET /api/users
+ * Get list of users from Firestore or Supabase
+ */
+const getAllUsers = async (req, res, next) => {
+  try {
+    const { db } = require("../config/firebase");
+
+    if (db) {
+      const usersSnapshot = await db
+        .collection("users")
+        .orderBy("created_at", "desc")
+        .limit(50)
+        .get();
+
+      const users = [];
+      usersSnapshot.forEach((doc) => {
+        users.push({
+          userId: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      if (users.length > 0) {
+        return res.status(200).json({
+          success: true,
+          count: users.length,
+          users: users,
+        });
+      }
+    }
+
+    const { data: farmers } = await supabase
+      .from(FarmerModel.tableName)
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    res.status(200).json({
+      success: true,
+      count: farmers ? farmers.length : 0,
+      users: (farmers || []).map(FarmerModel.format),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  register,
+  verifyOtp,
+  sendOtp,
+  resendOtp,
+  otpStatus,
+  logout,
+  verify,
+  updateProfile,
+  getUserById,
+  getAllUsers,
+};
 

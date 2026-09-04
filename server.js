@@ -15,6 +15,8 @@ const bookingRoutes = require("./routes/bookings");
 const slotRoutes = require("./routes/slots");
 const qualityRoutes = require("./routes/quality");
 const notificationRoutes = require("./routes/notifications");
+const userRoutes = require("./routes/users");
+const { isFirebaseConfigured } = require("./config/firebase");
 
 // Initialize Express app
 const app = express();
@@ -69,19 +71,25 @@ if (process.env.NODE_ENV === "development") {
 // API ROUTES
 // ========================
 
-// Health check
-app.get("/api/health", (req, res) => {
+// Health check endpoints
+const healthCheckHandler = (req, res) => {
   res.json({
+    status: "ok",
     success: true,
     message: "Farmer Procurement API is running!",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
+    firebase: isFirebaseConfigured ? "connected" : "not_configured",
     connectedClients: socketHelpers.getConnectedCount(),
   });
-});
+};
+
+app.get("/health", healthCheckHandler);
+app.get("/api/health", healthCheckHandler);
 
 // Mount routes
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/crops", cropRoutes);
 app.use("/api/centers", centerRoutes);
 app.use("/api/bookings", bookingRoutes);
