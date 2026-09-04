@@ -475,6 +475,56 @@ const verifyFirebase = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/auth/otp-status/:phone
+ */
+const otpStatus = (req, res, next) => {
+  try {
+    const { phone } = req.params;
+    const status = getOTPStatus(phone);
+    if (!status) return res.status(404).json({ success: false, message: "No active OTP found" });
+    res.status(200).json({ success: true, ...status });
+  } catch (error) { next(error); }
+};
+
+/**
+ * POST /api/auth/logout
+ */
+const logout = (req, res, next) => {
+  res.status(200).json({ success: true, message: "Logged out successfully" });
+};
+
+/**
+ * GET /api/auth/verify
+ */
+const verify = (req, res, next) => {
+  res.status(200).json({ success: true, message: "Token is valid", user: req.farmer });
+};
+
+/**
+ * PUT /api/auth/profile
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const userId = req.farmerId;
+    const updateData = req.body;
+    
+    // Prevent updating critical fields
+    delete updateData.id;
+    delete updateData.phone;
+    
+    const { data, error } = await supabase
+      .from(FarmerModel.tableName)
+      .update(updateData)
+      .eq("id", userId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    res.status(200).json({ success: true, message: "Profile updated successfully", farmer: FarmerModel.format(data) });
+  } catch (error) { next(error); }
+};
+
 module.exports = {
   register,
   verifyOtp,

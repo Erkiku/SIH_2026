@@ -6,7 +6,8 @@ let auth = null;
 let isFirebaseConfigured = false;
 
 try {
-  if (admin.apps.length === 0) {
+  const apps = admin.apps || [];
+  if (apps.length === 0) {
     const privateKey = process.env.FIREBASE_PRIVATE_KEY
       ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
       : undefined;
@@ -57,7 +58,7 @@ try {
     isFirebaseConfigured = true;
   }
 
-  if (admin.apps.length > 0) {
+  if (apps.length > 0 || admin.apps?.length > 0 || isFirebaseConfigured) {
     db = admin.firestore();
     auth = admin.auth();
     isFirebaseConfigured = true;
