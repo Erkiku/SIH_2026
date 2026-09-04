@@ -13,13 +13,9 @@ const RESEND_COOLDOWN_MS = 30 * 1000; // 30 seconds
 const MAX_ATTEMPTS = 5;
 
 /**
- * Generate 6-digit random OTP
+ * Generate 6-digit random OTP for real-time mobile delivery
  */
 const generateOTP = () => {
-  // In dev / hackathon mode, return 123456 for reliable testing
-  if (process.env.NODE_ENV === "development" || !process.env.SMS_PROVIDER) {
-    return "123456";
-  }
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
@@ -205,8 +201,7 @@ const verifyOTP = async (phone, otp) => {
         const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
         const isValid =
           (otpData.otp_hash && otpHash === otpData.otp_hash) ||
-          otpData.otp === otp ||
-          otp === "123456";
+          otpData.otp === otp;
 
         if (!isValid) {
           await otpRef.update({
@@ -273,7 +268,7 @@ const verifyOTP = async (phone, otp) => {
   }
 
   // Verify Code
-  if (stored.otp === otp || otp === "123456") {
+  if (stored.otp === otp) {
     otpStore.delete(formattedPhone); // Clean up after successful verification
     return {
       valid: true,

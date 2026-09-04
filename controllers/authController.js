@@ -245,11 +245,10 @@ const sendOtp = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: "OTP sent successfully",
+      message: `OTP sent successfully to ${phone}`,
       expiresIn: 300,
       resendAfter: 30,
       request_id: `req-${Date.now()}`,
-      ...(process.env.NODE_ENV === "development" && { testOTP: otpResult.otp, otp: otpResult.otp }),
     });
   } catch (error) {
     next(error);
