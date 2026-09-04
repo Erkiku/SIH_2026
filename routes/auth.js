@@ -10,6 +10,7 @@ const {
   logout,
   verify,
   updateProfile,
+  verifyFirebase,
 } = require("../controllers/authController");
 
 // POST /api/auth/register - Register with phone
@@ -20,6 +21,9 @@ router.post("/send-otp", sendOtp);
 
 // POST /api/auth/verify-otp - Verify OTP (PRD endpoint)
 router.post("/verify-otp", verifyOtp);
+
+// POST /api/auth/verify-firebase - Verify Firebase OTP
+router.post("/verify-firebase", verifyFirebase);
 
 // POST /api/auth/resend-otp - Resend OTP with 30s cooldown (PRD endpoint)
 router.post("/resend-otp", resendOtp);

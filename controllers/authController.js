@@ -392,6 +392,89 @@ const getAllUsers = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/auth/verify-firebase
+ * Verify Firebase ID Token and return JWT token
+ */
+const verifyFirebase = async (req, res, next) => {
+  try {
+    const { idToken, phone } = req.body;
+
+    if (!idToken || !phone) {
+      return res.status(400).json({
+        success: false,
+        error: "missing_fields",
+        message: "idToken and phone required",
+      });
+    }
+
+    const { admin, isFirebaseConfigured } = require("../config/firebase");
+    if (!isFirebaseConfigured || !admin) {
+      return res.status(500).json({ success: false, message: "Firebase not configured on server" });
+    }
+
+    // Verify ID Token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const formattedPhone = phone.startsWith("+") ? phone : `+91${phone}`;
+
+    // 2. Fetch/upsert farmer in Supabase database
+    let farmer = null;
+    try {
+      const { data: existingFarmer } = await supabase
+        .from(FarmerModel.tableName)
+        .select("*")
+        .eq("phone", phone)
+        .single();
+
+      if (existingFarmer) {
+        farmer = existingFarmer;
+        await supabase
+          .from(FarmerModel.tableName)
+          .update({ is_verified: true })
+          .eq("id", existingFarmer.id);
+      } else {
+        // Auto-register farmer record
+        const { data: newFarmer } = await supabase
+          .from(FarmerModel.tableName)
+          .insert({
+            phone: phone,
+            name: `Farmer ${phone.slice(-4)}`,
+            is_verified: true,
+          })
+          .select()
+          .single();
+        farmer = newFarmer;
+      }
+    } catch (sbErr) {
+      console.warn("Supabase farmer lookup warning:", sbErr.message);
+    }
+
+    const userId = farmer ? farmer.id : decodedToken.uid;
+
+    // 3. Generate JWT Token
+    const fallbackJwt = "farmer_procurement_jwt_secret_2026_sih";
+    const token = jwt.sign(
+      { farmerId: userId, phone: formattedPhone },
+      process.env.JWT_SECRET || fallbackJwt,
+      { expiresIn: "30d" }
+    );
+
+    console.log(`✅ Firebase OTP verified for ${formattedPhone}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Firebase OTP verified successfully",
+      userId: userId,
+      token: token,
+      expiresIn: 3600,
+      ...(farmer && { farmer: FarmerModel.format(farmer) }),
+    });
+  } catch (error) {
+    console.error("verifyFirebase error:", error);
+    res.status(401).json({ success: false, message: "Invalid Firebase Token" });
+  }
+};
+
 module.exports = {
   register,
   verifyOtp,
@@ -403,5 +486,6 @@ module.exports = {
   updateProfile,
   getUserById,
   getAllUsers,
+  verifyFirebase,
 };
 
