@@ -99,47 +99,54 @@ const sendOTP = async (phone, metadata = {}) => {
       console.warn("⚠️ Firebase Firestore store warning:", fbErr.message);
     }
 
-    // Delivery via Twilio API
-    const t1 = "AC5680ee2fe";
-    const t2 = "b7283be96e2e77f48d44807";
-    const fallbackSid = t1 + t2;
-
-    const ta1 = "9dc0912f63f";
-    const ta2 = "72bf763443e77168bd604";
-    const fallbackAuth = ta1 + ta2;
-
-    const accountSid = process.env.TWILIO_ACCOUNT_SID || fallbackSid;
-    const authToken = process.env.TWILIO_AUTH_TOKEN || fallbackAuth;
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER || "+17372508034";
-
-    const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-
-    const params = new URLSearchParams();
-    params.append("To", formattedPhone);
-    params.append("From", fromNumber);
-    params.append("Body", `Namaste! Your verification code for AgriProcure is ${otp}. Valid for 5 minutes.`);
-
-    try {
-      const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-        {
+    // 1. Fast2SMS Delivery (Best for India, requires FAST2SMS_API_KEY in .env)
+    const fast2smsKey = process.env.FAST2SMS_API_KEY;
+    
+    if (fast2smsKey) {
+      try {
+        const response = await fetch("https://www.fast2sms.com/dev/bulkV2", {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: `Basic ${basicAuth}`,
+            "authorization": fast2smsKey,
+            "Content-Type": "application/json"
           },
-          body: params.toString(),
+          body: JSON.stringify({
+            route: "v3",
+            sender_id: "TXTIND",
+            message: `Namaste! Your verification code for AgriProcure is ${otp}. Valid for 5 minutes.`,
+            language: "english",
+            flash: 0,
+            numbers: formattedPhone.replace("+91", "")
+          })
+        });
+        if (response.ok) {
+          console.log(`Fast2SMS delivered to ${formattedPhone}`);
+          return; // Success
         }
-      );
+      } catch (err) {
+        console.warn("Fast2SMS Error:", err.message);
+      }
+    }
 
-      if (response.ok) {
-        console.log(`Twilio SMS delivered to ${formattedPhone}`);
+    // 2. Textbelt Delivery (Free fallback, 1 SMS per IP per day, good for testing)
+    try {
+      const response = await fetch('https://textbelt.com/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: formattedPhone,
+          message: `Your AgriProcure OTP is ${otp}. Valid for 5 mins.`,
+          key: 'textbelt',
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        console.log(`Textbelt SMS delivered to ${formattedPhone}`);
       } else {
-        const errorData = await response.json();
-        console.warn("Twilio SMS Warning:", errorData.message || "Twilio call failed, continuing with OTP store.");
+        console.warn("Textbelt SMS Warning:", data.error || "Failed");
       }
     } catch (netErr) {
-      console.warn("Twilio network dispatch warning:", netErr.message);
+      console.warn("Textbelt network dispatch warning:", netErr.message);
     }
 
     return {
