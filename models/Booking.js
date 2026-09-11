@@ -118,7 +118,7 @@ function toDbRow(data, farmerId) {
     appointment_date: data.appointmentDate || new Date().toISOString().split("T")[0],
 
     appointment_time: data.appointmentTime || data.slot || "09:30 AM",
-    status: data.status || "confirmed",
+    status: data.status || "pending",
     estimated_wait_time: data.estimatedWaitTime || 15,
     current_position: data.currentPosition || 1,
     payment_amount: totalPayout,

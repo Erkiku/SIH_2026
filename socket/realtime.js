@@ -93,6 +93,29 @@ const setupSocket = (io) => {
     },
 
     /**
+     * Send booking status update to a specific farmer (admin → farmer)
+     */
+    emitBookingStatusUpdate: (farmerId, data) => {
+      io.to(`farmer_${farmerId}`).emit("bookingStatusUpdate", {
+        bookingId: data.bookingId,
+        status: data.status,
+        tokenNumber: data.tokenNumber,
+        message: data.message,
+        timestamp: new Date().toISOString(),
+      });
+    },
+
+    /**
+     * Notify admin dashboard of new booking
+     */
+    emitAdminNotification: (data) => {
+      io.emit("adminNewBooking", {
+        ...data,
+        timestamp: new Date().toISOString(),
+      });
+    },
+
+    /**
      * Broadcast to all connected clients
      */
     broadcast: (event, data) => {

@@ -200,11 +200,13 @@ const verifyOtp = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "OTP verified successfully",
-      userId: userId,
-      token: token,
-      customToken: customToken || token,
-      expiresIn: 3600,
-      ...(farmer && { farmer: FarmerModel.format(farmer) }),
+      data: {
+        userId: userId,
+        token: token,
+        customToken: customToken || token,
+        expiresIn: 3600,
+        ...(farmer && { farmer: FarmerModel.format(farmer) }),
+      },
     });
   } catch (error) {
     next(error);
@@ -464,10 +466,12 @@ const verifyFirebase = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "Firebase OTP verified successfully",
-      userId: userId,
-      token: token,
-      expiresIn: 3600,
-      ...(farmer && { farmer: FarmerModel.format(farmer) }),
+      data: {
+        userId: userId,
+        token: token,
+        expiresIn: 3600,
+        ...(farmer && { farmer: FarmerModel.format(farmer) }),
+      },
     });
   } catch (error) {
     console.error("verifyFirebase error:", error);

@@ -16,6 +16,7 @@ const slotRoutes = require("./routes/slots");
 const qualityRoutes = require("./routes/quality");
 const notificationRoutes = require("./routes/notifications");
 const userRoutes = require("./routes/users");
+const adminRoutes = require("./routes/admin");
 const { isFirebaseConfigured } = require("./config/firebase");
 
 // Initialize Express app
@@ -96,6 +97,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/slots", slotRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Transaction routes (inline - simpler)
 const { authMiddleware } = require("./middleware/authMiddleware");

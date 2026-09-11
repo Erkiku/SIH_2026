@@ -79,21 +79,34 @@ const createBooking = async (req, res, next) => {
       .update({ current_queue: (queueCount || 0) + 1 })
       .eq("id", data.centerId);
 
+    // Emit real-time notification to admin dashboard
+    const socketHelpers = req.app.get("socketHelpers");
+    if (socketHelpers) {
+      socketHelpers.emitAdminNotification({
+        type: "new_booking",
+        bookingId: booking.id,
+        tokenNumber: booking.token_number,
+        farmerId,
+        centerId: data.centerId,
+        cropName: data.cropName || "Wheat",
+        quantity: data.quantity || 50,
+      });
+    }
 
     // Create notification
     await supabase.from("notifications").insert(
       NotificationModel.toDbRow({
         farmerId,
         bookingId: booking.id,
-        type: "booking_confirmed",
-        title: "Booking Confirmed!",
-        message: `Your booking has been confirmed. Token: ${booking.token_number}. Position: ${booking.current_position}`,
+        type: "booking_pending",
+        title: "Booking Submitted!",
+        message: `Your booking has been submitted for admin approval. Token: ${booking.token_number}. Position: ${booking.current_position}. Estimated wait: ${booking.estimated_wait_time} minutes.`,
       }),
     );
 
     res.status(201).json({
       success: true,
-      message: "Booking created successfully.",
+      message: "Booking created successfully. Awaiting admin approval.",
       data: BookingModel.format(booking),
     });
   } catch (error) {
